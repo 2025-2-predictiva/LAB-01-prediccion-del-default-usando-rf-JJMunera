@@ -146,13 +146,15 @@ grid.fit(x_train, y_train)
 # %%
 # Paso 5.
 # Guarde el modelo (comprimido con gzip) como "files/models/model.pkl.gz".
+import os
+os.makedirs("files/models", exist_ok=True)
 with gzip.open("files/models/model.pkl.gz", "wb") as f:
-    pickle.dump(grid, f)
-
+    pickle.dump(pipe, f)
 # %%
 # Paso 6.
 # Calcule las metricas de precision, precision balanceada, recall y f1-score
 # para los conjuntos de entrenamiento y prueba y guárdelas en files/output/metrics.json.
+import os
 y_train_pred = grid.predict(x_train)
 y_test_pred = grid.predict(x_test)
 
@@ -178,6 +180,7 @@ metrics_test = {
 # Paso 7.
 # Calcule las matrices de confusion para los conjuntos de entrenamiento y prueba
 # en el formato requerido.
+import os
 cm_train_arr = confusion_matrix(y_train, y_train_pred)
 cm_test_arr = confusion_matrix(y_test, y_test_pred)
 
@@ -198,7 +201,7 @@ cm_test = {
 
 # Guardar todo en JSON Lines en el orden correcto
 metrics = [metrics_train, metrics_test, cm_train, cm_test]
-
+os.makedirs("files/output", exist_ok=True)
 with open("files/output/metrics.json", "w", encoding="utf-8") as f:
     for m in metrics:
         f.write(json.dumps(m) + "\n")
