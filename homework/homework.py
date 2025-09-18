@@ -90,7 +90,7 @@ preprocessor = ColumnTransformer(
 )
 
 pipe = make_pipeline(
-    OneHotEncoder(),
+    preprocessor,
     RandomForestClassifier(random_state=0)
 )
 pipe.fit(x_train, y_train)
@@ -101,6 +101,7 @@ pipe.fit(x_train, y_train)
 # balanceada para medir la precisión del modelo.
 from sklearn.model_selection import cross_validate
 result = cross_validate(pipe, x_train, y_train, cv=10, scoring="balanced_accuracy")
+print("Balanced accuracy (CV=10):", result['test_score'].mean())
 #%%
 # Paso 5.
 # Guarde el modelo (comprimido con gzip) como "files/models/model.pkl.gz".
@@ -113,7 +114,6 @@ model_path = "files/models/model.pkl.gz"
 with gzip.open(model_path, 'wb') as f:
     pickle.dump(pipe, f)
 #%%
-#
 # Paso 6.
 # Calcule las metricas de precision, precision balanceada, recall,
 # y f1-score para los conjuntos de entrenamiento y prueba.
@@ -151,7 +151,6 @@ def calcular_metricas(y_true, y_pred, dataset_name):
 metrics_train = calcular_metricas(y_train, y_train_pred, 'train')
 metrics_test = calcular_metricas(y_test, y_test_pred, 'test')
 #%%
-#
 # Paso 7.
 # Calcule las matrices de confusion para los conjuntos de entrenamiento y
 # prueba. Guardelas en el archivo files/output/metrics.json. Cada fila
@@ -161,3 +160,28 @@ metrics_test = calcular_metricas(y_test, y_test_pred, 'test')
 # {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
 # {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
 #
+def matriz_confusion(y_true, y_pred, dataset_name):
+    cm = confusion_matrix(y_true, y_pred, labels=[0,1])
+    return {
+        'type': 'cm_matrix',
+        'dataset': dataset_name,
+        'true_0': {
+            'predicted_0': int(cm[0,0]),
+            'predicted_1': int(cm[0,1])
+        },
+        'true_1': {
+            'predicted_0': int(cm[1,0]),
+            'predicted_1': int(cm[1,1])
+        }
+    }
+
+cm_train = matriz_confusion(y_train, y_train_pred, 'train')
+cm_test = matriz_confusion(y_test, y_test_pred, 'test')
+
+# --- 4️⃣ Guardar todo en metrics.json ---
+metrics = [metrics_train, metrics_test, cm_train, cm_test]
+
+with open("files/output/metrics.json", "w") as f:
+    for m in metrics:
+        f.write(json.dumps(m) + "\n")
+#%%
