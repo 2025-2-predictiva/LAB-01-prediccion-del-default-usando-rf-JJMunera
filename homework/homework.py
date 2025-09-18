@@ -40,8 +40,8 @@ import pandas as pd
 # Paso 1.
 # Realice la limpieza de los datasets:
 # - Renombre la columna "default payment next month" a "default".
-df_test_data = pd.read_csv("../files/input/test_data.csv.zip", compression="zip")  
-df_train_data = pd.read_csv("../files/input/train_data.csv.zip", compression="zip")
+df_test_data = pd.read_csv("files/input/test_data.csv.zip", compression="zip")  
+df_train_data = pd.read_csv("files/input/train_data.csv.zip", compression="zip")
 
 df_test_data = df_test_data.rename(columns={"default payment next month": "default"})
 df_train_data = df_train_data.rename(columns={"default payment next month": "default"})
