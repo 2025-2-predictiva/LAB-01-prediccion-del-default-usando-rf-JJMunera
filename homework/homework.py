@@ -99,89 +99,107 @@ pipe.fit(x_train, y_train)
 # Optimice los hiperparametros del pipeline usando validación cruzada.
 # Use 10 splits para la validación cruzada. Use la función de precision
 # balanceada para medir la precisión del modelo.
-from sklearn.model_selection import cross_validate
-result = cross_validate(pipe, x_train, y_train, cv=10, scoring="balanced_accuracy")
-print("Balanced accuracy (CV=10):", result['test_score'].mean())
-#%%
-# Paso 5.
-# Guarde el modelo (comprimido con gzip) como "files/models/model.pkl.gz".
-# Recuerde que es posible guardar el modelo comprimido usanzo la libreria gzip.
-import gzip
-import pickle
-import os
-os.makedirs("files/models", exist_ok=True)
-model_path = "files/models/model.pkl.gz"
-with gzip.open(model_path, 'wb') as f:
-    pickle.dump(pipe, f)
-#%%
-# Paso 6.
-# Calcule las metricas de precision, precision balanceada, recall,
-# y f1-score para los conjuntos de entrenamiento y prueba.
-# Guardelas en el archivo files/output/metrics.json. Cada fila
-# del archivo es un diccionario con las metricas de un modelo.
-# Este diccionario tiene un campo para indicar si es el conjunto
-# de entrenamiento o prueba. Por ejemplo:
-#
-# {'dataset': 'train', 'precision': 0.8, 'balanced_accuracy': 0.7, 'recall': 0.9, 'f1_score': 0.85}
-# {'dataset': 'test', 'precision': 0.7, 'balanced_accuracy': 0.6, 'recall': 0.8, 'f1_score': 0.75}
-
-import json
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import (
     precision_score,
+    balanced_accuracy_score,
     recall_score,
     f1_score,
-    balanced_accuracy_score,
-    confusion_matrix
+    confusion_matrix,
 )
-# Asegura la carpeta de salida
-os.makedirs("files/output", exist_ok=True)
+import gzip
+import pickle
+import json
+import numpy as np
 
-y_train_pred = pipe.predict(x_train)
-y_test_pred = pipe.predict(x_test)
+# Suponiendo que ya tienes x_train, y_train, x_test, y_test definidos
+# Reemplaza estas variables si provienen de otra parte:
+# x_train, y_train, x_test, y_test = ...
 
-def calcular_metricas(y_true, y_pred, dataset_name):
-    return {
-        'dataset': dataset_name,
-        'precision': precision_score(y_true, y_pred, zero_division=0),
-        'balanced_accuracy': balanced_accuracy_score(y_true, y_pred),
-        'recall': recall_score(y_true, y_pred, zero_division=0),
-        'f1_score': f1_score(y_true, y_pred, zero_division=0)
-    }
+# Detectar columnas categóricas automáticamente o defínelas:
+categorical_cols = x_train.select_dtypes(include=["object", "category"]).columns
+preprocessor = ColumnTransformer(
+    transformers=[("cat", OneHotEncoder(handle_unknown="ignore"), categorical_cols)],
+    remainder="passthrough",
+)
 
-metrics_train = calcular_metricas(y_train, y_train_pred, 'train')
-metrics_test = calcular_metricas(y_test, y_test_pred, 'test')
-#%%
+pipe = Pipeline(
+    steps=[
+        ("preprocessor", preprocessor),
+        ("classifier", RandomForestClassifier(random_state=42)),
+    ]
+)
+
+# Hiperparámetros para GridSearchCV
+param_grid = {
+    "classifier__n_estimators": [100, 200],
+    "classifier__max_depth": [None, 10],
+}
+
+grid = GridSearchCV(pipe, param_grid, cv=10, scoring="balanced_accuracy")
+grid.fit(x_train, y_train)
+
+# %%
+# Paso 5.
+# Guarde el modelo (comprimido con gzip) como "files/models/model.pkl.gz".
+with gzip.open("files/models/model.pkl.gz", "wb") as f:
+    pickle.dump(grid, f)
+
+# %%
+# Paso 6.
+# Calcule las metricas de precision, precision balanceada, recall y f1-score
+# para los conjuntos de entrenamiento y prueba y guárdelas en files/output/metrics.json.
+y_train_pred = grid.predict(x_train)
+y_test_pred = grid.predict(x_test)
+
+metrics_train = {
+    "type": "metrics",
+    "dataset": "train",
+    "precision": precision_score(y_train, y_train_pred, average="weighted"),
+    "balanced_accuracy": balanced_accuracy_score(y_train, y_train_pred),
+    "recall": recall_score(y_train, y_train_pred, average="weighted"),
+    "f1_score": f1_score(y_train, y_train_pred, average="weighted"),
+}
+
+metrics_test = {
+    "type": "metrics",
+    "dataset": "test",
+    "precision": precision_score(y_test, y_test_pred, average="weighted"),
+    "balanced_accuracy": balanced_accuracy_score(y_test, y_test_pred),
+    "recall": recall_score(y_test, y_test_pred, average="weighted"),
+    "f1_score": f1_score(y_test, y_test_pred, average="weighted"),
+}
+
+# %%
 # Paso 7.
-# Calcule las matrices de confusion para los conjuntos de entrenamiento y
-# prueba. Guardelas en el archivo files/output/metrics.json. Cada fila
-# del archivo es un diccionario con las metricas de un modelo.
-# de entrenamiento o prueba. Por ejemplo:
-#
-# {'type': 'cm_matrix', 'dataset': 'train', 'true_0': {"predicted_0": 15562, "predicte_1": 666}, 'true_1': {"predicted_0": 3333, "predicted_1": 1444}}
-# {'type': 'cm_matrix', 'dataset': 'test', 'true_0': {"predicted_0": 15562, "predicte_1": 650}, 'true_1': {"predicted_0": 2490, "predicted_1": 1420}}
-#
-def matriz_confusion(y_true, y_pred, dataset_name):
-    cm = confusion_matrix(y_true, y_pred, labels=[0,1])
-    return {
-        'type': 'cm_matrix',
-        'dataset': dataset_name,
-        'true_0': {
-            'predicted_0': int(cm[0,0]),
-            'predicted_1': int(cm[0,1])
-        },
-        'true_1': {
-            'predicted_0': int(cm[1,0]),
-            'predicted_1': int(cm[1,1])
-        }
-    }
+# Calcule las matrices de confusion para los conjuntos de entrenamiento y prueba
+# en el formato requerido.
+cm_train_arr = confusion_matrix(y_train, y_train_pred)
+cm_test_arr = confusion_matrix(y_test, y_test_pred)
 
-cm_train = matriz_confusion(y_train, y_train_pred, 'train')
-cm_test = matriz_confusion(y_test, y_test_pred, 'test')
+# Suponemos un problema binario con etiquetas [0,1]
+cm_train = {
+    "type": "cm_matrix",
+    "dataset": "train",
+    "true_0": {"predicted_0": int(cm_train_arr[0, 0]), "predicted_1": int(cm_train_arr[0, 1])},
+    "true_1": {"predicted_0": int(cm_train_arr[1, 0]), "predicted_1": int(cm_train_arr[1, 1])},
+}
 
-# --- 4️⃣ Guardar todo en metrics.json ---
+cm_test = {
+    "type": "cm_matrix",
+    "dataset": "test",
+    "true_0": {"predicted_0": int(cm_test_arr[0, 0]), "predicted_1": int(cm_test_arr[0, 1])},
+    "true_1": {"predicted_0": int(cm_test_arr[1, 0]), "predicted_1": int(cm_test_arr[1, 1])},
+}
+
+# Guardar todo en JSON Lines en el orden correcto
 metrics = [metrics_train, metrics_test, cm_train, cm_test]
 
-with open("files/output/metrics.json", "w") as f:
+with open("files/output/metrics.json", "w", encoding="utf-8") as f:
     for m in metrics:
         f.write(json.dumps(m) + "\n")
 #%%
