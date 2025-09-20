@@ -38,8 +38,8 @@
 #%%
 import pandas as pd
 # Paso 1.
-df_test_data = pd.read_csv("files/input/test_data.csv.zip", compression="zip")  
-df_train_data = pd.read_csv("files/input/train_data.csv.zip", compression="zip")
+df_test_data = pd.read_csv("../files/input/test_data.csv.zip", compression="zip")  
+df_train_data = pd.read_csv("../files/input/train_data.csv.zip", compression="zip")
 
 df_test_data = df_test_data.rename(columns={"default payment next month": "default"})
 df_train_data = df_train_data.rename(columns={"default payment next month": "default"})
@@ -61,25 +61,37 @@ y_test = df_test_data["default"]
 
 #%%
 # Paso 3.
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.pipeline import make_pipeline
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.compose import ColumnTransformer
+from sklearn.decomposition import PCA
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.feature_selection import f_classif, SelectKBest
+from sklearn.ensemble import RandomForestClassifier
 
+#Columnas categóricas
 categoric_vars = ["SEX", "MARRIAGE", "EDUCATION"]
 numeric_vars = [n for n in x_train.columns if n not in categoric_vars]
-preprocessor = ColumnTransformer(
+
+preprocessor= ColumnTransformer(
     transformers=[
         ('cat', OneHotEncoder(handle_unknown='ignore'), categoric_vars),
-        ('num', 'passthrough', numeric_vars)
+        ('num', StandardScaler(with_mean=True, with_std=True), numeric_vars)
+    ]
+)
+pipeline= Pipeline(
+    [
+        ('preprocessor', preprocessor),
+        ('pca', PCA()),
+        ('feature_selection', SelectKBest(score_func=f_classif)),
+        ('classifier', RandomForestClassifier(random_state=42))
     ]
 )
 
-pipe = make_pipeline(preprocessor, RandomForestClassifier(random_state=0))
-pipe.fit(x_train, y_train)
-
 #%%
 # Paso 4.
+import pickle
+import os
+import gzip
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import (
     precision_score,
@@ -88,76 +100,123 @@ from sklearn.metrics import (
     f1_score,
     confusion_matrix,
 )
-import gzip, pickle, json, os
-
-categorical_cols = x_train.select_dtypes(include=["object", "category"]).columns
-preprocessor = ColumnTransformer(
-    transformers=[("cat", OneHotEncoder(handle_unknown="ignore"), categorical_cols)],
-    remainder="passthrough",
-)
-
-pipe = make_pipeline(preprocessor, RandomForestClassifier(random_state=42))
 
 param_grid = {
-    "randomforestclassifier__n_estimators": [100, 200],
-    "randomforestclassifier__max_depth": [None, 10],
+    "pca__n_components": [20, x_train.shape[1]-2],
+    "feature_selection__k": [20],
+    'classifier__kernel': ['rbf'],
+    'classifier__gamma': [1.0],
 }
 
-grid = GridSearchCV(pipe, param_grid, cv=10, scoring="balanced_accuracy")
-grid.fit(x_train, y_train)
+model=GridSearchCV(
+    pipeline, 
+    param_grid, 
+    cv=10, 
+    scoring="balanced_accuracy",
+    n_jobs = -1,
+    refit = True,
+    )
 
-#%%
-# Paso 5.
-os.makedirs("files/models", exist_ok=True)
-with gzip.open("files/models/model.pkl.gz", "wb") as f:
-    pickle.dump(grid, f)  # Guardar grid (no pipe)
+model.fit(x_train, y_train)
+
+models_dir='../files/models/'
+os.makedirs(models_dir, exist_ok=True)
+
+#nombre del archivo donde se guardará el modelo
+compressed_model_path = "../files/models/homework_model.pkl.gz"
+
+with gzip.open(compressed_model_path, 'wb') as f:
+    pickle.dump(model, f)
 
 #%%
 # Paso 6.
-y_train_pred = grid.predict(x_train)
-y_test_pred = grid.predict(x_test)
+import json
+from sklearn.metrics import precision_score, recall_score, f1_score, balanced_accuracy_score
 
-metrics_train = {
-    "type": "metrics",
-    "dataset": "train",
-    "precision": precision_score(y_train, y_train_pred),
-    "balanced_accuracy": balanced_accuracy_score(y_train, y_train_pred),
-    "recall": recall_score(y_train, y_train_pred),
-    "f1_score": f1_score(y_train, y_train_pred),
-}
+def calculate_and_save_metrics(model, X_train, X_test, y_train, y_test):
+    # Hacer predicciones
+    y_train_pred = model.predict(X_train)
+    y_test_pred = model.predict(X_test)
 
-metrics_test = {
-    "type": "metrics",
-    "dataset": "test",
-    "precision": precision_score(y_test, y_test_pred),
-    "balanced_accuracy": balanced_accuracy_score(y_test, y_test_pred),
-    "recall": recall_score(y_test, y_test_pred),
-    "f1_score": f1_score(y_test, y_test_pred),
-}
+    # Calcular métricas para el conjunto de entrenamiento
+    metrics_train = {
+        'type': 'metrics',
+        'dataset': 'train',
+        'precision': precision_score(y_train, y_train_pred, zero_division=0),
+        'balanced_accuracy': balanced_accuracy_score(y_train, y_train_pred),
+        'recall': recall_score(y_train, y_train_pred, zero_division=0),
+        'f1_score': f1_score(y_train, y_train_pred, zero_division=0)
+    }
 
+    # Calcular métricas para el conjunto de prueba
+    metrics_test = {
+        'type': 'metrics',
+        'dataset': 'test',
+        'precision': precision_score(y_test, y_test_pred, zero_division=0),
+        'balanced_accuracy': balanced_accuracy_score(y_test, y_test_pred),
+        'recall': recall_score(y_test, y_test_pred, zero_division=0),
+        'f1_score': f1_score(y_test, y_test_pred, zero_division=0)
+    }
+
+    # Crear carpeta si no existe
+    output_dir = '../files/output'
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Guardar las métricas en un archivo JSON
+    output_path = os.path.join(output_dir, 'metrics.json')
+    with open(output_path, 'w') as f:  # Usar 'w' para comenzar con un archivo limpio
+        f.write(json.dumps(metrics_train) + '\n')
+        f.write(json.dumps(metrics_test) + '\n')
 #%%
 # Paso 7.
-cm_train_arr = confusion_matrix(y_train, y_train_pred)
-cm_test_arr = confusion_matrix(y_test, y_test_pred)
+from sklearn.metrics import confusion_matrix
 
-cm_train = {
-    "type": "cm_matrix",
-    "dataset": "train",
-    "true_0": {"predicted_0": int(cm_train_arr[0, 0]), "predicted_1": int(cm_train_arr[0, 1])},
-    "true_1": {"predicted_0": int(cm_train_arr[1, 0]), "predicted_1": int(cm_train_arr[1, 1])},
-}
 
-cm_test = {
-    "type": "cm_matrix",
-    "dataset": "test",
-    "true_0": {"predicted_0": int(cm_test_arr[0, 0]), "predicted_1": int(cm_test_arr[0, 1])},
-    "true_1": {"predicted_0": int(cm_test_arr[1, 0]), "predicted_1": int(cm_test_arr[1, 1])},
-}
+# Función para calcular las matrices de confusión y guardarlas
+def calculate_and_save_confusion_matrices(model, X_train, X_test, y_train, y_test):
+    # Hacer predicciones
+    y_train_pred = model.predict(X_train)
+    y_test_pred = model.predict(X_test)
 
-os.makedirs("files/output", exist_ok=True)
-metrics = [metrics_train, metrics_test, cm_train, cm_test]
-with open("files/output/metrics.json", "w", encoding="utf-8") as f:
-    for m in metrics:
-        f.write(json.dumps(m) + "\n")
+    # Calcular matrices de confusión
+    cm_train = confusion_matrix(y_train, y_train_pred)
+    cm_test = confusion_matrix(y_test, y_test_pred)
 
-# %%
+    # Convertir las matrices de confusión en formato JSON
+    def format_confusion_matrix(cm, dataset_type):
+        return {
+            'type': 'cm_matrix',
+            'dataset': dataset_type,
+            'true_0': {
+                'predicted_0': int(cm[0, 0]),
+                'predicted_1': int(cm[0, 1])
+            },
+            'true_1': {
+                'predicted_0': int(cm[1, 0]),
+                'predicted_1': int(cm[1, 1])
+            }
+        }
+
+    metrics = [
+        format_confusion_matrix(cm_train, 'train'),
+        format_confusion_matrix(cm_test, 'test')
+    ]
+
+    # Guardar las matrices de confusión en el mismo archivo JSON
+    output_path = '../files/output/metrics.json'
+    with open(output_path, 'a') as f:  # Usar 'a' para agregar después de las métricas
+        for metric in metrics:
+            f.write(json.dumps(metric) + '\n')
+
+# Función principal para ejecutar todo
+def main(model, X_train, X_test, y_train, y_test):
+    # Crear el directorio de salida si no existe
+    import os
+    os.makedirs('../files/output', exist_ok=True)
+
+    # Calcular y guardar las métricas
+    calculate_and_save_metrics(model, X_train, X_test, y_train, y_test)
+
+    # Calcular y guardar las matrices de confusión
+    calculate_and_save_confusion_matrices(model, X_train, X_test, y_train, y_test)
+#%%
