@@ -104,8 +104,10 @@ from sklearn.metrics import (
 param_grid = {
     "pca__n_components": [20, x_train.shape[1]-2],
     "feature_selection__k": [20],
-    'classifier__kernel': ['rbf'],
-    'classifier__gamma': [1.0],
+    "classifier__n_estimators": [100, 200],
+    "classifier__max_depth": [5, 10, None],
+    "classifier__min_samples_split": [2, 5],
+    "classifier__min_samples_leaf": [1, 2],
 }
 
 model=GridSearchCV(
